@@ -43,7 +43,8 @@ class MentalLoadManager(plux.SignalsDev):
         
         self.eda_data = []
         self.ppg_data = []
-        self.acc_data = [[], [], []] # X, Y, Z
+        self.ecg_data = [] # Nouveau buffer pour l'ECG
+        self.respiration_data = [] # Nouveau buffer pour la respiration
         self.sample_count = 0
         
         self.current_mental_load = 0.0 # Valeur entre 0 et 100
@@ -56,22 +57,22 @@ class MentalLoadManager(plux.SignalsDev):
         """
         Callback appelé par l'API PLUX pour chaque échantillon.
         Ordre attendu des ports : EDA(1), PPG(2), ACC(3,4,5)
+        Nouvel ordre attendu des ports : EDA(1), PPG(2), ECG(3), Respiration(4)
         """
         with self._lock:
             # Extraction des données selon l'ordre des ports actifs
-            # data[0] est souvent le nSeq interne ou le premier port
-            # Ici on assume : 0:EDA, 1:PPG, 2:ACC_X, 3:ACC_Y, 4:ACC_Z
+            # Assumed order: 0:EDA, 1:PPG, 2:ECG, 3:Respiration
             self.eda_data.append(data[0])
             self.ppg_data.append(data[1])
-            self.acc_data[0].append(data[2])
-            self.acc_data[1].append(data[3])
-            self.acc_data[2].append(data[4])
+            self.ecg_data.append(data[2])
+            self.respiration_data.append(data[3])
 
             # Maintenance de la fenêtre glissante
             if len(self.eda_data) > self.max_samples:
                 self.eda_data.pop(0)
                 self.ppg_data.pop(0)
-                for i in range(3): self.acc_data[i].pop(0)
+                self.ecg_data.pop(0) # Pop pour l'ECG
+                self.respiration_data.pop(0) # Pop pour la respiration
             self.sample_count += 1
 
         # Calcul de la métrique tous les 500 échantillons (500ms à 1000Hz)
@@ -86,22 +87,34 @@ class MentalLoadManager(plux.SignalsDev):
         Ceci est une implémentation simplifiée à affiner selon vos tests.
         """
         if len(self.eda_data) < 100:
+           # S'assurer qu'il y a suffisamment de données pour les calculs
+        if len(self.eda_data) < self.sampling_rate or \
+           len(self.ppg_data) < self.sampling_rate or \
+           len(self.ecg_data) < self.sampling_rate or \
+           len(self.respiration_data) < self.sampling_rate:
             return
 
         with self._lock:
             # 1. Analyse EDA (Conductance : niveau de stress/éveil)
-            # On prend la moyenne récente par rapport à la moyenne du buffer
-            eda_recent = np.mean(self.eda_data[-500:])
+            # On prend la moyenne récente sur 0.5s
+            eda_recent = np.mean(self.eda_data[-self.sampling_rate // 2:])
             
             # 2. Analyse PPG (Rythme cardiaque simplifié)
-            # On calcule la variance du signal pour détecter l'agitation cardiaque
-            ppg_std = np.std(self.ppg_data[-1000:])
+            # On calcule la variabilité du signal sur 1s
+            ppg_std = np.std(self.ppg_data[-self.sampling_rate:])
             
-            # 3. Analyse ACC (Micromouvements)
-            # Somme des écarts-types sur les 3 axes
-            acc_movement = sum([np.std(axis[-500:]) for axis in self.acc_data])
+            # 3. Analyse ECG (Variabilité cardiaque simplifiée)
+            # On calcule la variabilité du signal sur 1s
+            ecg_std = np.std(self.ecg_data[-self.sampling_rate:])
+            
+            # 4. Analyse Respiration (Variabilité respiratoire simplifiée)
+            # On calcule la variabilité du signal sur 1s
+            respiration_std = np.std(self.respiration_data[-self.sampling_rate:])
 
-        load_score = (eda_recent * 0.5) + (ppg_std * 0.3) + (acc_movement * 0.2)
+        # Algorithme de fusion (Métrique "Fiable")
+        # Poids ajustés pour EDA, PPG, ECG, Respiration
+        # Ces poids sont arbitraires et nécessitent une calibration expérimentale
+        load_score = (eda_recent * 0.4) + (ppg_std * 0.2) + (ecg_std * 0.3) + (respiration_std * 0.1)
         
         if self.is_calibrating:
             self.calibration_buffer.append(load_score)
@@ -119,6 +132,8 @@ class MentalLoadManager(plux.SignalsDev):
             self.current_mental_load = min(max(load_percent, 0), 100)
         else:
             # Valeur par défaut si pas de calibration (peu sensible)
+            # Utilisation d'une valeur arbitraire pour la division si baseline non définie
+            # Cela devrait être remplacé par une calibration ou une valeur par défaut plus robuste
             self.current_mental_load = min(max(load_score / 10.0, 0), 100)
 
     def start_capture(self):
@@ -134,8 +149,8 @@ class MentalLoadManager(plux.SignalsDev):
 
     def _run_acquisition(self):
         try:
-            # Ports 1 à 5 actifs (EDA, PPG, ACC X/Y/Z)
-            self.start(self.sampling_rate, [1, 2, 3, 4, 5], 16)
+            # Ports actifs : EDA(1), PPG(2), ECG(3), Respiration(4)
+            self.start(self.sampling_rate, [1, 2, 3, 4], 16)
             self.loop()
         except Exception as e:
             print(f"Erreur lors de l'acquisition : {e}")
@@ -157,6 +172,8 @@ class MentalLoadManager(plux.SignalsDev):
             self.is_calibrating = False
             if self.calibration_buffer:
                 self.baseline_score = np.mean(self.calibration_buffer)
+            else:
+                self.baseline_score = 1.0 # Empêche la division par zéro si aucune donnée n'est collectée
         print(f"Calibration terminée. Baseline: {self.baseline_score}")
 
     def stop_capture(self):
