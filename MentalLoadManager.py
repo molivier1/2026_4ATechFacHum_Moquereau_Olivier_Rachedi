@@ -10,6 +10,18 @@ osDic = {
     "Linux": "Linux64",
     "Windows": f"Win{platform.architecture()[0][:2]}_{''.join(platform.python_version().split('.')[:2])}",
 }
+
+if platform.mac_ver()[0] != "":
+    import subprocess
+    from os import linesep
+    p = subprocess.Popen("sw_vers", stdout=subprocess.PIPE)
+    result = p.communicate()[0].decode("utf-8").split(str("\t"))[2].split(linesep)[0]
+    if result.startswith("12."):
+        osDic["Darwin"] = "MacOS/Intel310"
+        if int(platform.python_version().split(".")[0]) <= 3 and int(platform.python_version().split(".")[1]) < 10:
+            print(f"Python version required is ≥ 3.10. Installed is {platform.python_version()}")
+            exit()
+
 sys.path.append(f"PLUX-API-Python3/{osDic[platform.system()]}")
 
 import plux
@@ -20,7 +32,7 @@ class MentalLoadManager(plux.SignalsDev):
     Utilise un thread séparé pour l'acquisition afin de laisser l'UI fluide.
     """
     def __init__(self, address):
-        plux.SignalsDev.__init__(self, address)
+        plux.SignalsDev.__init__(address)
         self.address = address
         self.is_running = False
         self.sampling_rate = 1000
