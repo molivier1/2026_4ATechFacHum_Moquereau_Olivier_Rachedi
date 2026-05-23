@@ -20,7 +20,7 @@ class MentalLoadManager(plux.SignalsDev):
     Utilise un thread séparé pour l'acquisition afin de laisser l'UI fluide.
     """
     def __init__(self, address):
-        super().__init__(address)
+        plux.SignalsDev.__init__(self, address)
         self.address = address
         self.is_running = False
         self.sampling_rate = 1000
