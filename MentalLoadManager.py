@@ -48,6 +48,9 @@ class MentalLoadManager(plux.SignalsDev):
         
         self.current_mental_load = 0.0 # Valeur entre 0 et 100
         self._lock = threading.Lock()
+        self.baseline_score = None
+        self.is_calibrating = False
+        self.calibration_buffer = []
 
     def onRawFrame(self, nSeq, data):
         """
@@ -98,14 +101,25 @@ class MentalLoadManager(plux.SignalsDev):
             # Somme des écarts-types sur les 3 axes
             acc_movement = sum([np.std(axis[-500:]) for axis in self.acc_data])
 
-        # Algorithme de fusion (Métrique "Fiable")
-        # On normalise arbitrairement pour l'exemple (à calibrer avec vos sujets)
-        # EDA contribue à 50%, PPG à 30%, ACC à 20%
         load_score = (eda_recent * 0.5) + (ppg_std * 0.3) + (acc_movement * 0.2)
         
-        # Mapping vers une échelle 0-100
-        # Note : nécessite une calibration initiale pour être réellement "fiable"
-        self.current_mental_load = min(max(load_score / 10.0, 0), 100)
+        if self.is_calibrating:
+            self.calibration_buffer.append(load_score)
+            return
+
+        if self.baseline_score is not None and self.baseline_score > 0:
+            # On calcule l'augmentation par rapport au repos (baseline)
+            # Sensibilité ajustable : ici, on considère qu'une augmentation de 15% 
+            # par rapport à la baseline correspond à 100% de charge mentale.
+            sensitivity = 0.15 
+            diff = load_score - self.baseline_score
+            
+            # On transforme l'augmentation en pourcentage (0-100)
+            load_percent = (diff / (self.baseline_score * sensitivity)) * 100
+            self.current_mental_load = min(max(load_percent, 0), 100)
+        else:
+            # Valeur par défaut si pas de calibration (peu sensible)
+            self.current_mental_load = min(max(load_score / 10.0, 0), 100)
 
     def start_capture(self):
         """Lance l'acquisition dans un thread dédié"""
@@ -129,6 +143,21 @@ class MentalLoadManager(plux.SignalsDev):
             self.is_running = False
             self.stop()
             self.close()
+
+    def start_calibration(self):
+        """Démarre l'accumulation de données pour la ligne de base"""
+        with self._lock:
+            self.calibration_buffer = []
+            self.is_calibrating = True
+        print("Calibration démarrée...")
+
+    def stop_calibration(self):
+        """Calcule la ligne de base à partir des données accumulées"""
+        with self._lock:
+            self.is_calibrating = False
+            if self.calibration_buffer:
+                self.baseline_score = np.mean(self.calibration_buffer)
+        print(f"Calibration terminée. Baseline: {self.baseline_score}")
 
     def stop_capture(self):
         """Arrête proprement l'acquisition"""

@@ -34,6 +34,7 @@ class CognitiveGame:
         self.timer_value = 0
         self.timer_running = False
         self.all_data = []
+        self.is_calibrated = False
 
         # --- Zone d'Affichage Principale ---
         self.main_frame = tk.Frame(root, bg=self.colors["card"], highlightbackground="#4E4E6A", highlightthickness=1)
@@ -124,7 +125,14 @@ class CognitiveGame:
 
         # Mise à jour dynamique des instructions si on est sur l'écran d'accueil (IDLE)
         if self.state == "IDLE":
-            self.label_task.config(text=self.get_instructions(), font=("Helvetica", 16), fg=self.colors["text"])
+            self.btn_action.config(state="normal")
+            if not self.is_calibrated:
+                calib_text = "BIENVENUE\n\nAvant de commencer, nous devons calibrer vos capteurs.\nRestez immobile et détendez-vous pendant 10 secondes."
+                self.label_task.config(text=calib_text, font=("Helvetica", 18, "bold"), fg=self.colors["accent"])
+                self.btn_action.config(text="LANCER CALIBRATION (10s)")
+            else:
+                self.label_task.config(text=self.get_instructions(), font=("Helvetica", 16), fg=self.colors["text"])
+                self.btn_action.config(text="DÉMARRER LA SESSION")
 
     def get_instructions(self):
         """Génère les modalités de l'examen dynamiquement selon l'intensité"""
@@ -163,7 +171,13 @@ class CognitiveGame:
             self.root.after(1000, self.update_timer)
         elif self.timer_running:
             self.timer_running = False
-            self.next_step() # Déclenchement automatique du changement de slide
+            if self.state == "CALIBRATING":
+                self.manager.stop_calibration()
+                self.is_calibrated = True
+                self.state = "IDLE"
+                self.update_ui_elements()
+            else:
+                self.next_step() # Déclenchement automatique du changement de slide
 
     def update_load_visual(self):
         """Affiche la charge mentale calculée en temps réel par le MentalLoadManager"""
@@ -188,6 +202,14 @@ class CognitiveGame:
         self.label_timer.config(text="")
 
         if self.state == "IDLE":
+            if not self.is_calibrated:
+                self.state = "CALIBRATING"
+                self.label_task.config(text="CALIBRATION EN COURS...\n\nNe bougez pas, respirez normalement.", fg=self.colors["text"])
+                self.btn_action.config(text="CALIBRATION...", state="disabled")
+                self.manager.start_calibration()
+                self.start_timer(10)
+                return
+
             self.btn_export.pack_forget() # On cache le bouton d'export si on recommence
             self.btn_export.config(text="EXPORTER LES DONNÉES (CSV)", state="normal", bg=self.colors["blue"])
             self.state = "MEMORIZE"
