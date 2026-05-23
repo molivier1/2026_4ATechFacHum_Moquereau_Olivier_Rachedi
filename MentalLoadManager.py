@@ -86,8 +86,6 @@ class MentalLoadManager(plux.SignalsDev):
         Calcule la corrélation entre EDA, PPG et ACC pour estimer la charge mentale.
         Ceci est une implémentation simplifiée à affiner selon vos tests.
         """
-        if len(self.eda_data) < 100:
-           # S'assurer qu'il y a suffisamment de données pour les calculs
         if len(self.eda_data) < self.sampling_rate or \
            len(self.ppg_data) < self.sampling_rate or \
            len(self.ecg_data) < self.sampling_rate or \
@@ -99,9 +97,12 @@ class MentalLoadManager(plux.SignalsDev):
             # On prend la moyenne récente sur 0.5s
             eda_recent = np.mean(self.eda_data[-self.sampling_rate // 2:])
             
-            # 2. Analyse PPG (Rythme cardiaque simplifié)
-            # On calcule la variabilité du signal sur 1s
-            ppg_std = np.std(self.ppg_data[-self.sampling_rate:])
+            # 2. Analyse PPG (Traitement anti-mouvement)
+            ppg_window = np.array(self.ppg_data[-self.sampling_rate:])
+            # On soustrait la moyenne pour supprimer la dérive de la ligne de base (mouvement)
+            ppg_detrended = ppg_window - np.mean(ppg_window)
+            # On utilise le percentile 90 plutôt que le std pour ignorer les pics de mouvement
+            ppg_robust_amp = np.percentile(np.abs(ppg_detrended), 90)
             
             # 3. Analyse ECG (Variabilité cardiaque simplifiée)
             # On calcule la variabilité du signal sur 1s
@@ -112,9 +113,9 @@ class MentalLoadManager(plux.SignalsDev):
             respiration_std = np.std(self.respiration_data[-self.sampling_rate:])
 
         # Algorithme de fusion (Métrique "Fiable")
-        # Poids ajustés pour EDA, PPG, ECG, Respiration
-        # Ces poids sont arbitraires et nécessitent une calibration expérimentale
-        load_score = (eda_recent * 0.4) + (ppg_std * 0.2) + (ecg_std * 0.3) + (respiration_std * 0.1)
+        # On donne plus de poids à l'ECG et à l'EDA car le PPG est trop bruité par le mouvement
+        # EDA (40%), ECG (40%), PPG (10%), Respiration (10%)
+        load_score = (eda_recent * 0.4) + (ppg_robust_amp * 0.1) + (ecg_std * 0.4) + (respiration_std * 0.1)
         
         if self.is_calibrating:
             self.calibration_buffer.append(load_score)
