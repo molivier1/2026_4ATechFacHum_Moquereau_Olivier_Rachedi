@@ -49,7 +49,7 @@ class MentalLoadManager(plux.SignalsDev):
         
         self.current_mental_load = 0.0 # Valeur entre 0 et 100
         self._lock = threading.Lock()
-        self.baseline_score = None
+        self.baselines = {} # Stocke les valeurs de repos par capteur
         self.is_calibrating = False
         self.calibration_buffer = []
 
@@ -93,49 +93,46 @@ class MentalLoadManager(plux.SignalsDev):
             return
 
         with self._lock:
-            # 1. Analyse EDA (Conductance : niveau de stress/éveil)
-            # On prend la moyenne récente sur 0.5s
-            eda_recent = np.mean(self.eda_data[-self.sampling_rate // 2:])
+            # Extraction des caractéristiques actuelles
+            # EDA : Moyenne (Niveau de sudation)
+            curr_eda = np.mean(self.eda_data[-self.sampling_rate // 2:])
             
-            # 2. Analyse PPG (Traitement anti-mouvement)
+            # PPG & ECG : Energie du signal (proxy du rythme cardiaque sans détection de pics complexe)
             ppg_window = np.array(self.ppg_data[-self.sampling_rate:])
-            # On soustrait la moyenne pour supprimer la dérive de la ligne de base (mouvement)
-            ppg_detrended = ppg_window - np.mean(ppg_window)
-            # On utilise le percentile 90 plutôt que le std pour ignorer les pics de mouvement
-            ppg_robust_amp = np.percentile(np.abs(ppg_detrended), 90)
+            curr_ppg = np.std(ppg_window - np.mean(ppg_window))
             
-            # 3. Analyse ECG (Variabilité cardiaque simplifiée)
-            # On calcule la variabilité du signal sur 1s
-            ecg_std = np.std(self.ecg_data[-self.sampling_rate:])
+            curr_ecg = np.std(self.ecg_data[-self.sampling_rate:])
             
-            # 4. Analyse Respiration (Variabilité respiratoire simplifiée)
-            # On calcule la variabilité du signal sur 1s
-            respiration_std = np.std(self.respiration_data[-self.sampling_rate:])
+            # Respiration : Fréquence d'oscillation (simplifiée par l'écart-type)
+            curr_res = np.std(self.respiration_data[-self.sampling_rate:])
 
-        # Algorithme de fusion (Métrique "Fiable")
-        # On donne plus de poids à l'ECG et à l'EDA car le PPG est trop bruité par le mouvement
-        # EDA (40%), ECG (40%), PPG (10%), Respiration (10%)
-        load_score = (eda_recent * 0.4) + (ppg_robust_amp * 0.1) + (ecg_std * 0.4) + (respiration_std * 0.1)
-        
+        # Pendant la calibration, on stocke les valeurs brutes
         if self.is_calibrating:
-            self.calibration_buffer.append(load_score)
+            self.calibration_buffer.append({
+                'eda': curr_eda, 'ppg': curr_ppg, 'ecg': curr_ecg, 'res': curr_res
+            })
             return
 
-        if self.baseline_score is not None and self.baseline_score > 0:
-            # On calcule l'augmentation par rapport au repos (baseline)
-            # Sensibilité ajustable : ici, on considère qu'une augmentation de 15% 
-            # par rapport à la baseline correspond à 100% de charge mentale.
-            sensitivity = 0.15 
-            diff = load_score - self.baseline_score
+        # Calcul du score basé sur la déviation par rapport à la baseline
+        if self.baselines:
+            # Calcul du pourcentage de changement pour chaque capteur
+            # On évite la division par zéro avec +1e-6
+            diff_eda = (curr_eda - self.baselines['eda']) / (self.baselines['eda'] + 1e-6)
+            diff_ecg = (curr_ecg - self.baselines['ecg']) / (self.baselines['ecg'] + 1e-6)
+            diff_ppg = (curr_ppg - self.baselines['ppg']) / (self.baselines['ppg'] + 1e-6)
+            diff_res = (curr_res - self.baselines['res']) / (self.baselines['res'] + 1e-6)
+
+            # Fusion pondérée des déviations (EDA et ECG sont prioritaires)
+            # On multiplie par un gain pour rendre la jauge plus réactive
+            gain = 5.0 
+            total_diff = (diff_eda * 0.4) + (diff_ecg * 0.4) + (diff_ppg * 0.1) + (diff_res * 0.1)
             
-            # On transforme l'augmentation en pourcentage (0-100)
-            load_percent = (diff / (self.baseline_score * sensitivity)) * 100
+            # Mapping 0-100
+            load_percent = total_diff * gain * 100
             self.current_mental_load = min(max(load_percent, 0), 100)
+        
         else:
-            # Valeur par défaut si pas de calibration (peu sensible)
-            # Utilisation d'une valeur arbitraire pour la division si baseline non définie
-            # Cela devrait être remplacé par une calibration ou une valeur par défaut plus robuste
-            self.current_mental_load = min(max(load_score / 10.0, 0), 100)
+            self.current_mental_load = 0.0
 
     def start_capture(self):
         """Lance l'acquisition dans un thread dédié"""
@@ -172,10 +169,13 @@ class MentalLoadManager(plux.SignalsDev):
         with self._lock:
             self.is_calibrating = False
             if self.calibration_buffer:
-                self.baseline_score = np.mean(self.calibration_buffer)
-            else:
-                self.baseline_score = 1.0 # Empêche la division par zéro si aucune donnée n'est collectée
-        print(f"Calibration terminée. Baseline: {self.baseline_score}")
+                self.baselines = {
+                    'eda': np.mean([x['eda'] for x in self.calibration_buffer]),
+                    'ppg': np.mean([x['ppg'] for x in self.calibration_buffer]),
+                    'ecg': np.mean([x['ecg'] for x in self.calibration_buffer]),
+                    'res': np.mean([x['res'] for x in self.calibration_buffer])
+                }
+        print(f"Calibration terminée. Baselines enregistrées : {self.baselines.keys()}")
 
     def stop_capture(self):
         """Arrête proprement l'acquisition"""
