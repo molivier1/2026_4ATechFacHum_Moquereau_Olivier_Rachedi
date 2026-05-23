@@ -34,21 +34,11 @@ class CognitiveGame:
         self.timer_running = False
         self.all_data = []
 
-        self.instructions = (
-            "MODALITÉS DE L'EXPÉRIENCE\n\n"
-            "• MÉMORISATION : Retenez la série de lettres affichée.\n"
-            "• LECTURE : Lisez le texte technique attentivement.\n"
-            "• CALCUL : (Niveau 5+) Résolvez l'addition intermédiaire.\n"
-            "• RAPPEL : Restituez les lettres du début.\n\n"
-            "CONTRÔLE : Vous pouvez ajuster l'intensité à tout moment pour "
-            "observer l'impact sur votre charge mentale."
-        )
-
         # --- Zone d'Affichage Principale ---
         self.main_frame = tk.Frame(root, bg=self.colors["card"], highlightbackground="#4E4E6A", highlightthickness=1)
         self.main_frame.pack(expand=True, fill="both", padx=40, pady=(40, 20))
 
-        self.label_task = tk.Label(self.main_frame, text=self.instructions, font=("Helvetica", 16), fg=self.colors["text"], bg=self.colors["card"], wraplength=700)
+        self.label_task = tk.Label(self.main_frame, text="", font=("Helvetica", 16), fg=self.colors["text"], bg=self.colors["card"], wraplength=700)
         self.label_task.pack(expand=True)
 
         self.label_timer = tk.Label(self.main_frame, text="", font=("Helvetica", 14), fg=self.colors["accent"], bg=self.colors["card"])
@@ -123,6 +113,27 @@ class CognitiveGame:
         fill_width = (self.intensity / 10.0) * 200
         self.canvas_int_lvl.coords(self.int_lvl_bar, 0, 0, fill_width, 10)
 
+        # Mise à jour dynamique des instructions si on est sur l'écran d'accueil (IDLE)
+        if self.state == "IDLE":
+            self.label_task.config(text=self.get_instructions(), font=("Helvetica", 16), fg=self.colors["text"])
+
+    def get_instructions(self):
+        """Génère les modalités de l'examen dynamiquement selon l'intensité"""
+        num_letters_memorize = 3 + (self.intensity // 2)
+        timer_memorize = 5 + (self.intensity // 2)
+        timer_input = 10 + (self.intensity // 2)
+
+        math_desc = f"• CALCUL : Résolvez l'addition intermédiaire (10s)." if self.intensity >= 5 else "• CALCUL : Désactivé pour ce niveau."
+
+        return (
+            f"MODALITÉS DE L'EXPÉRIENCE (INTENSITÉ {self.intensity})\n\n"
+            f"• MÉMORISATION : Retenez {num_letters_memorize} lettres ({timer_memorize}s).\n"
+            "• LECTURE : Lisez le texte technique attentivement.\n"
+            f"{math_desc}\n"
+            f"• RAPPEL : Restituez les lettres du début ({timer_input}s).\n\n"
+            "CONTRÔLE : Ajustez l'intensité pour modifier ces paramètres en direct."
+        )
+
     def start_timer(self, seconds):
         self.timer_value = seconds
         self.timer_running = True
@@ -181,7 +192,6 @@ class CognitiveGame:
             
             self.label_task.config(text=f"LECTURE\n\n{text_sample}", font=("Helvetica", 16), fg=self.colors["text"])
             self.btn_action.config(text="CONTINUER", bg=self.colors["blue"])
-            self.start_timer(15)
 
         elif self.state == "READ":
             # Si intensité élevée, on ajoute une tâche de calcul mental
@@ -213,7 +223,7 @@ class CognitiveGame:
 
         elif self.state == "RECALL":
             self.state = "IDLE"
-            self.label_task.config(text=self.instructions, font=("Helvetica", 16), fg=self.colors["text"])
+            self.update_ui_elements() # Re-affiche les instructions dynamiques
             self.btn_action.config(text="DÉMARRER LA SESSION", bg=self.colors["accent"])
             if self.all_data: # On affiche le bouton d'export seulement s'il y a des données
                 self.btn_export.pack(pady=5)
