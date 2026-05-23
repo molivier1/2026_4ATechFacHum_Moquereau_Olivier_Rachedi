@@ -5,6 +5,7 @@ import string
 import csv
 import time
 from datetime import datetime
+from MentalLoadManager import MentalLoadManager
 
 class CognitiveGame:
     def __init__(self, root):
@@ -92,6 +93,14 @@ class CognitiveGame:
                                    bg=self.colors["blue"], fg="white", font=("Helvetica", 12, "bold"), 
                                    padx=20, pady=10, relief="flat", cursor="hand2")
 
+        # Initialisation du gestionnaire de charge mentale (BITalino)
+        # On utilise l'adresse MAC configurée dans vos fichiers d'acquisition
+        self.manager = MentalLoadManager("98:D3:C1:FE:04:BB")
+        self.manager.start_capture()
+
+        # Protocole pour arrêter l'acquisition quand on ferme la fenêtre
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
         self.update_ui_elements()
 
         # Lancement de la boucle de simulation de charge (à lier au BITalino plus tard)
@@ -123,7 +132,15 @@ class CognitiveGame:
         timer_memorize = 5 + (self.intensity // 2)
         timer_input = 10 + (self.intensity // 2)
 
-        math_desc = f"• CALCUL : Résolvez l'addition intermédiaire (10s)." if self.intensity >= 5 else "• CALCUL : Désactivé pour ce niveau."
+        math_desc = ""
+        if self.intensity < 5:
+            math_desc = "• CALCUL : Désactivé pour ce niveau."
+        elif self.intensity < 7:
+            math_desc = "• CALCUL : Résolvez une addition simple (10s)."
+        elif self.intensity < 9:
+            math_desc = "• CALCUL : Résolvez une addition plus complexe (10s)."
+        else:
+            math_desc = "• CALCUL : Résolvez une multiplication (10s)."
 
         return (
             f"MODALITÉS DE L'EXPÉRIENCE (INTENSITÉ {self.intensity})\n\n"
@@ -149,11 +166,12 @@ class CognitiveGame:
             self.next_step() # Déclenchement automatique du changement de slide
 
     def update_load_visual(self):
-        """Affiche la charge mentale réelle (à lier à votre métrique fiable)"""
+        """Affiche la charge mentale calculée en temps réel par le MentalLoadManager"""
         width = self.canvas_load.winfo_width()
         if width <= 1: width = 820 # Largeur par défaut si le rendu n'est pas fini
 
-        # On utilise self.mental_load qui sera mise à jour par vos capteurs (0-100)
+        # Récupération de la valeur calculée par le thread d'acquisition
+        self.mental_load = self.manager.get_current_load()
         fill_width = (self.mental_load / 100.0) * width
 
         # Changement de couleur selon la charge
@@ -197,9 +215,23 @@ class CognitiveGame:
             # Si intensité élevée, on ajoute une tâche de calcul mental
             if self.intensity >= 5:
                 self.state = "MATH"
-                a, b = random.randint(10, 50), random.randint(10, 50)
-                self.math_solution = a + b
-                self.label_task.config(text=f"CALCUL MENTAL\n\nCombien font : {a} + {b} ?", font=("Helvetica", 25, "bold"))
+                operation_text = ""
+                if self.intensity < 7: # Intensité 5-6: addition simple
+                    a, b = random.randint(10, 50), random.randint(10, 50)
+                    self.math_solution = a + b
+                    operation_text = f"{a} + {b}"
+                elif self.intensity < 9: # Intensité 7-8: addition plus complexe
+                    a, b = random.randint(50, 100), random.randint(50, 100)
+                    self.math_solution = a + b
+                    operation_text = f"{a} + {b}"
+                else: # Intensité 9-10: multiplication
+                    # Nombres choisis pour rester faisables mentalement
+                    a = random.randint(10, 20)
+                    b = random.randint(5, 15)
+                    self.math_solution = a * b
+                    operation_text = f"{a} x {b}"
+
+                self.label_task.config(text=f"CALCUL MENTAL\n\nCombien font : {operation_text} ?", font=("Helvetica", 25, "bold"))
                 self.entry_recall.pack(pady=20)
                 self.entry_recall.delete(0, tk.END)
                 self.entry_recall.focus_set()
@@ -273,6 +305,11 @@ class CognitiveGame:
         
         # Feedback visuel après export
         self.btn_export.config(text="DONNÉES EXPORTÉES ✅", state="disabled", bg=self.colors["success"])
+
+    def on_closing(self):
+        """Arrête proprement l'acquisition BITalino avant de quitter"""
+        self.manager.stop_capture()
+        self.root.destroy()
 
 if __name__ == "__main__":
     root = tk.Tk()

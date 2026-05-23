@@ -20,7 +20,7 @@ class MentalLoadManager(plux.SignalsDev):
     Utilise un thread séparé pour l'acquisition afin de laisser l'UI fluide.
     """
     def __init__(self, address):
-        plux.SignalsDev.__init__(address)
+        super().__init__(address)
         self.address = address
         self.is_running = False
         self.sampling_rate = 1000
@@ -32,6 +32,7 @@ class MentalLoadManager(plux.SignalsDev):
         self.eda_data = []
         self.ppg_data = []
         self.acc_data = [[], [], []] # X, Y, Z
+        self.sample_count = 0
         
         self.current_mental_load = 0.0 # Valeur entre 0 et 100
         self._lock = threading.Lock()
@@ -56,9 +57,10 @@ class MentalLoadManager(plux.SignalsDev):
                 self.eda_data.pop(0)
                 self.ppg_data.pop(0)
                 for i in range(3): self.acc_data[i].pop(0)
+            self.sample_count += 1
 
-        # Calcul de la métrique toutes les 500ms pour ne pas surcharger le CPU
-        if nSeq % 500 == 0:
+        # Calcul de la métrique tous les 500 échantillons (500ms à 1000Hz)
+        if self.sample_count % 500 == 0:
             self._update_metrics()
 
         return not self.is_running
