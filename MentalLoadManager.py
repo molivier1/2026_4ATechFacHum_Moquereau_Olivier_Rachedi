@@ -3,6 +3,7 @@ import sys
 import threading
 import numpy as np
 import time
+from datetime import datetime
 
 # Configuration du chemin pour la librairie PLUX selon l'OS
 osDic = {
@@ -38,7 +39,7 @@ class MentalLoadManager(plux.SignalsDev):
         self.sampling_rate = 1000
         
         # Buffers pour stocker les dernières secondes de données (fenêtre glissante)
-        self.buffer_duration = 5  # secondes
+        self.buffer_duration = 10  # Augmenté à 10s pour plus de stabilité
         self.max_samples = self.sampling_rate * self.buffer_duration
         
         self.eda_data = []
@@ -46,12 +47,14 @@ class MentalLoadManager(plux.SignalsDev):
         self.ecg_data = [] # Nouveau buffer pour l'ECG
         self.respiration_data = [] # Nouveau buffer pour la respiration
         self.sample_count = 0
+        self.history_load = [] # Pour lissage final
         
         self.current_mental_load = 0.0 # Valeur entre 0 et 100
         self._lock = threading.Lock()
         self.baselines = {} # Stocke les valeurs de repos par capteur
         self.is_calibrating = False
         self.calibration_buffer = []
+        self.load_history_full = [] # Historique complet pour l'export (horodatage, charge)
 
     def onRawFrame(self, nSeq, data):
         """
@@ -93,15 +96,17 @@ class MentalLoadManager(plux.SignalsDev):
             return
 
         with self._lock:
-            # Extraction des caractéristiques actuelles
+            # Fenêtrage plus large pour l'ECG/PPG afin de capturer plusieurs cycles cardiaques
+            # Cela évite que la barre ne saute à chaque battement
             # EDA : Moyenne (Niveau de sudation)
-            curr_eda = np.mean(self.eda_data[-self.sampling_rate // 2:])
+            curr_eda = np.mean(self.eda_data[-self.sampling_rate * 2:]) # Moyenne sur 2s
             
-            # PPG & ECG : Energie du signal (proxy du rythme cardiaque sans détection de pics complexe)
-            ppg_window = np.array(self.ppg_data[-self.sampling_rate:])
+            # ECG : On regarde la puissance du signal sur 5 secondes pour lisser
+            curr_ecg = np.std(self.ecg_data[-self.sampling_rate * 5:])
+            
+            # PPG : Idem sur 5 secondes
+            ppg_window = np.array(self.ppg_data[-self.sampling_rate * 5:])
             curr_ppg = np.std(ppg_window - np.mean(ppg_window))
-            
-            curr_ecg = np.std(self.ecg_data[-self.sampling_rate:])
             
             # Respiration : Fréquence d'oscillation (simplifiée par l'écart-type)
             curr_res = np.std(self.respiration_data[-self.sampling_rate:])
@@ -123,13 +128,22 @@ class MentalLoadManager(plux.SignalsDev):
             diff_res = (curr_res - self.baselines['res']) / (self.baselines['res'] + 1e-6)
 
             # Fusion pondérée des déviations (EDA et ECG sont prioritaires)
-            # On multiplie par un gain pour rendre la jauge plus réactive
-            gain = 5.0 
+            gain = 3.0 
             total_diff = (diff_eda * 0.4) + (diff_ecg * 0.4) + (diff_ppg * 0.1) + (diff_res * 0.1)
             
             # Mapping 0-100
-            load_percent = total_diff * gain * 100
-            self.current_mental_load = min(max(load_percent, 0), 100)
+            raw_load = total_diff * gain * 100
+            
+            # Lissage temporel (Moyenne mobile sur les 5 derniers calculs)
+            self.history_load.append(raw_load)
+            if len(self.history_load) > 5:
+                self.history_load.pop(0)
+            
+            smoothed_load = sum(self.history_load) / len(self.history_load)
+            self.current_mental_load = min(max(smoothed_load, 0), 100)
+            
+            # Sauvegarde dans l'historique complet pour l'export (chaque 0.5s)
+            self.load_history_full.append([datetime.now().strftime('%H:%M:%S.%f')[:-3], self.current_mental_load])
         
         else:
             self.current_mental_load = 0.0

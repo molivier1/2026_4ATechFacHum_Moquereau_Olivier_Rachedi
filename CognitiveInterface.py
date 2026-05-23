@@ -127,9 +127,9 @@ class CognitiveGame:
         if self.state == "IDLE":
             self.btn_action.config(state="normal")
             if not self.is_calibrated:
-                calib_text = "BIENVENUE\n\nAvant de commencer, nous devons calibrer vos capteurs.\nRestez immobile et détendez-vous pendant 10 secondes."
+                calib_text = "BIENVENUE DANS L'EXPÉRIENCE\n\nPour garantir des mesures fiables, nous devons établir votre profil physiologique de base (ligne de base).\n\nCONSIGNES :\n1. Installez-vous confortablement.\n2. Restez immobile et silencieux.\n3. Respirez normalement et détendez-vous.\n\nCette phase durera 30 secondes."
                 self.label_task.config(text=calib_text, font=("Helvetica", 18, "bold"), fg=self.colors["accent"])
-                self.btn_action.config(text="LANCER CALIBRATION (10s)")
+                self.btn_action.config(text="LANCER LA CALIBRATION (30s)")
             else:
                 self.label_task.config(text=self.get_instructions(), font=("Helvetica", 16), fg=self.colors["text"])
                 self.btn_action.config(text="DÉMARRER LA SESSION")
@@ -152,11 +152,11 @@ class CognitiveGame:
 
         return (
             f"MODALITÉS DE L'EXPÉRIENCE (INTENSITÉ {self.intensity})\n\n"
-            f"• MÉMORISATION : Retenez {num_letters_memorize} lettres ({timer_memorize}s).\n"
-            "• LECTURE : Lisez le texte technique attentivement.\n"
+            f"• MÉMORISATION : Une suite de {num_letters_memorize} lettres va apparaître. Retenez-les bien ({timer_memorize}s).\n"
+            "• LECTURE : Un texte scientifique s'affichera. Lisez-le attentivement pour maintenir votre concentration.\n"
             f"{math_desc}\n"
-            f"• RAPPEL : Restituez les lettres du début ({timer_input}s).\n\n"
-            "CONTRÔLE : Ajustez l'intensité pour modifier ces paramètres en direct."
+            f"• RAPPEL : Saisissez les lettres initiales dans l'ordre exact ({timer_input}s).\n\n"
+            "UTILISEZ LES BOUTONS +/- POUR AJUSTER LA DIFFICULTÉ AVANT DE COMMENCER."
         )
 
     def start_timer(self, seconds):
@@ -207,7 +207,7 @@ class CognitiveGame:
                 self.label_task.config(text="CALIBRATION EN COURS...\n\nNe bougez pas, respirez normalement.", fg=self.colors["text"])
                 self.btn_action.config(text="CALIBRATION...", state="disabled")
                 self.manager.start_calibration()
-                self.start_timer(10)
+                self.start_timer(30)
                 return
 
             self.btn_export.pack_forget() # On cache le bouton d'export si on recommence
@@ -224,11 +224,19 @@ class CognitiveGame:
         elif self.state == "MEMORIZE":
             self.state = "READ"
             if self.intensity < 5:
-                text_sample = "L'attention est une fonction cognitive complexe permettant de sélectionner un stimulus."
+                text_sample = ("L'attention est une fonction cognitive complexe qui permet de sélectionner un stimulus "
+                              "spécifique parmi une multitude d'informations sensorielles tout en ignorant les "
+                              "distractions environnementales. Elle est essentielle pour le traitement efficace de "
+                              "l'information et joue un rôle crucial dans les processus d'apprentissage.")
             else:
-                text_sample = ("L'inhibition cognitive est la capacité d'écarter des informations non pertinentes. "
-                              "Le modèle de Baddeley décrit la mémoire de travail comme un système composé d'un administrateur central, "
-                              "d'une boucle phonologique et d'un calepin visuo-spatial.")
+                text_sample = ("L'inhibition cognitive est la capacité de l'esprit à écarter des informations non "
+                              "pertinentes ou à supprimer des réponses automatiques qui interfèrent avec les objectifs "
+                              "de la tâche en cours. Le modèle de Baddeley décrit la mémoire de travail comme un système "
+                              "composé d'un administrateur central, d'une boucle phonologique pour les sons et d'un "
+                              "calepin visuo-spatial pour les images. Ce système possède une capacité limitée, et son "
+                              "dépassement entraîne une fatigue cognitive importante, souvent accompagnée de variations "
+                              "physiologiques mesurables telles que l'augmentation de la conductance cutanée ou la "
+                              "modification de la variabilité cardiaque.")
             
             self.label_task.config(text=f"LECTURE\n\n{text_sample}", font=("Helvetica", 16), fg=self.colors["text"])
             self.btn_action.config(text="CONTINUER", bg=self.colors["blue"])
@@ -319,14 +327,24 @@ class CognitiveGame:
 
     def export_csv(self):
         """Génère le fichier CSV avec toutes les données accumulées durant la session"""
-        filename = f"experiment_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        with open(filename, mode='w', newline='') as f:
+        timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+        summary_filename = f"summary_{timestamp_str}.csv"
+        timeline_filename = f"timeline_{timestamp_str}.csv"
+        
+        # 1. Export du résumé (Performance globale par étape)
+        with open(summary_filename, mode='w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(['Timestamp', 'Intensity', 'Letters_Target', 'Letters_Input', 'Math_Correct', 'Final_Load'])
             writer.writerows(self.all_data)
+            
+        # 2. Export de la chronologie complète (Charge mentale toutes les 0.5s)
+        with open(timeline_filename, mode='w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['Timestamp', 'Mental_Load_Value'])
+            writer.writerows(self.manager.load_history_full)
         
         # Feedback visuel après export
-        self.btn_export.config(text="DONNÉES EXPORTÉES ✅", state="disabled", bg=self.colors["success"])
+        self.btn_export.config(text="CSV GÉNÉRÉS ✅", state="disabled", bg=self.colors["success"])
 
     def on_closing(self):
         """Arrête proprement l'acquisition BITalino avant de quitter"""
