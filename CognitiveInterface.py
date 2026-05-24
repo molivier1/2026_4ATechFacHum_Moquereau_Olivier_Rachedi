@@ -1,4 +1,5 @@
 import csv
+from pathlib import Path
 import random
 from datetime import datetime
 
@@ -74,6 +75,18 @@ class CognitiveGame:
             justify="center",
         )
         self.label_task.pack(expand=True, padx=30)
+
+        self.chart_frame = tk.Frame(self.main_frame, bg=self.colors["card"])
+        self.chart_canvas = tk.Canvas(
+            self.chart_frame,
+            width=760,
+            height=260,
+            bg="#10182C",
+            highlightthickness=1,
+            highlightbackground="#4E4E6A",
+        )
+        self.chart_canvas.pack(padx=20, pady=10)
+        self.chart_canvas.bind("<Configure>", lambda event: self.draw_load_chart())
 
         self.entry_answer = tk.Entry(
             self.main_frame,
@@ -185,6 +198,7 @@ class CognitiveGame:
     def show_home(self):
         self.hide_entry()
         self.hide_rating()
+        self.hide_chart()
         self.label_title.config(text="PROTOCOLE PAR BLOCS")
         self.label_task.config(
             text=(
@@ -267,6 +281,7 @@ class CognitiveGame:
         self.state = "CALIBRATING"
         self.hide_entry()
         self.hide_rating()
+        self.hide_chart()
         self.manager.start_calibration()
         self.label_title.config(text="CALIBRATION REPOS")
         self.label_task.config(
@@ -296,6 +311,7 @@ class CognitiveGame:
         self.manager.set_phase(condition)
         self.manager.set_context(trial_id=trial_id, intensity=intensity, condition=condition)
         self.hide_rating()
+        self.hide_chart()
 
         if condition == "HIGH":
             self.start_high_block()
@@ -457,10 +473,11 @@ class CognitiveGame:
         self.hide_rating()
         self.label_title.config(text="SESSION TERMINEE")
         self.label_task.config(
-            text="Vous pouvez maintenant exporter les CSV pour analyser LOW vs HIGH.",
-            font=("Helvetica", 22, "bold"),
+            text="Courbe de charge mentale par bloc",
+            font=("Helvetica", 18, "bold"),
             fg=self.colors["success"],
         )
+        self.show_chart()
         self.label_timer.config(text="")
         self.btn_action.config(
             text="EXPORTER LES DONNEES",
@@ -488,10 +505,145 @@ class CognitiveGame:
         if self.rating_frame.winfo_ismapped():
             self.rating_frame.pack_forget()
 
+    def show_chart(self):
+        if not self.chart_frame.winfo_ismapped():
+            self.chart_frame.pack(fill="x", padx=10, pady=(0, 20))
+        self.root.after(100, self.draw_load_chart)
+
+    def hide_chart(self):
+        if self.chart_frame.winfo_ismapped():
+            self.chart_frame.pack_forget()
+
+    def draw_load_chart(self):
+        if not hasattr(self, "chart_canvas") or not self.chart_canvas.winfo_exists():
+            return
+
+        canvas = self.chart_canvas
+        canvas.delete("all")
+
+        rows = [
+            row for row in self.manager.feature_history_full
+            if row.get("condition") in ("REST", "LOW", "HIGH")
+            and isinstance(row.get("mental_load"), (int, float))
+        ]
+        width = max(canvas.winfo_width(), 760)
+        height = max(canvas.winfo_height(), 260)
+        pad_left = 52
+        pad_right = 18
+        pad_top = 24
+        pad_bottom = 42
+        plot_w = width - pad_left - pad_right
+        plot_h = height - pad_top - pad_bottom
+
+        if len(rows) < 2:
+            canvas.create_text(
+                width / 2,
+                height / 2,
+                text="Pas assez de donnees pour tracer la courbe.",
+                fill=self.colors["text"],
+                font=("Helvetica", 14, "bold"),
+            )
+            return
+
+        condition_colors = {
+            "REST": "#20314F",
+            "LOW": "#1D4D47",
+            "HIGH": "#5A2531",
+        }
+        line_color = "#FFD166"
+        axis_color = "#AEB7CC"
+        grid_color = "#283856"
+
+        max_load = max(40.0, min(100.0, max(row["mental_load"] for row in rows) * 1.15))
+
+        def x_at(index):
+            if len(rows) == 1:
+                return pad_left
+            return pad_left + (index / (len(rows) - 1)) * plot_w
+
+        def y_at(load):
+            return pad_top + plot_h - (max(0.0, min(load, max_load)) / max_load) * plot_h
+
+        # Fonds colores par bloc/condition.
+        start = 0
+        for index in range(1, len(rows) + 1):
+            is_end = index == len(rows)
+            if is_end or rows[index].get("trial_id") != rows[start].get("trial_id"):
+                end = index - 1
+                condition = rows[start].get("condition")
+                x1 = x_at(start)
+                x2 = x_at(end)
+                canvas.create_rectangle(
+                    x1,
+                    pad_top,
+                    max(x2, x1 + 2),
+                    pad_top + plot_h,
+                    fill=condition_colors.get(condition, "#263247"),
+                    outline="",
+                )
+                label_x = (x1 + x2) / 2
+                if x2 - x1 > 34:
+                    canvas.create_text(
+                        label_x,
+                        height - 18,
+                        text=f"{rows[start].get('trial_id')} {condition}",
+                        fill="#D9E2F2",
+                        font=("Helvetica", 8, "bold"),
+                    )
+                start = index
+
+        for pct in (0, 25, 50, 75, 100):
+            value = max_load * pct / 100
+            y = y_at(value)
+            canvas.create_line(pad_left, y, pad_left + plot_w, y, fill=grid_color)
+            canvas.create_text(
+                pad_left - 10,
+                y,
+                text=f"{value:.0f}",
+                fill=axis_color,
+                font=("Helvetica", 8),
+                anchor="e",
+            )
+
+        points = []
+        for index, row in enumerate(rows):
+            points.extend([x_at(index), y_at(row["mental_load"])])
+
+        if len(points) >= 4:
+            canvas.create_line(*points, fill=line_color, width=3, smooth=True)
+
+        for index in range(0, len(rows), max(1, len(rows) // 80)):
+            canvas.create_oval(
+                x_at(index) - 2,
+                y_at(rows[index]["mental_load"]) - 2,
+                x_at(index) + 2,
+                y_at(rows[index]["mental_load"]) + 2,
+                fill=line_color,
+                outline="",
+            )
+
+        canvas.create_rectangle(pad_left, pad_top, pad_left + plot_w, pad_top + plot_h, outline=axis_color)
+        canvas.create_text(
+            pad_left,
+            12,
+            text="Charge mentale estimee",
+            fill=self.colors["text"],
+            font=("Helvetica", 10, "bold"),
+            anchor="w",
+        )
+
+        legend_x = width - 255
+        for offset, (label, color) in enumerate(condition_colors.items()):
+            x = legend_x + offset * 82
+            canvas.create_rectangle(x, 9, x + 14, 21, fill=color, outline="")
+            canvas.create_text(x + 20, 15, text=label, fill=self.colors["text"], font=("Helvetica", 9), anchor="w")
+
     def export_csv(self):
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        summary_filename = f"summary_{timestamp_str}.csv"
-        timeline_filename = f"timeline_{timestamp_str}.csv"
+        session_dir = Path("resultats") / f"session_{timestamp_str}"
+        session_dir.mkdir(parents=True, exist_ok=True)
+        summary_filename = session_dir / f"summary_{timestamp_str}.csv"
+        timeline_filename = session_dir / f"timeline_{timestamp_str}.csv"
 
         summary_fields = [
             "timestamp", "trial_id", "condition", "intensity", "duration_s",
@@ -522,7 +674,7 @@ class CognitiveGame:
             writer.writeheader()
             writer.writerows(timeline_rows)
 
-        self.btn_action.config(text="CSV GENERES", state="disabled", bg=self.colors["success"])
+        self.btn_action.config(text=f"CSV GENERES: {session_dir}", state="disabled", bg=self.colors["success"])
         self.btn_export.config(text="CSV GENERES", state="disabled", bg=self.colors["success"])
 
     def on_closing(self):
