@@ -1,0 +1,123 @@
+\documentclass[runningheads]{llncs}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[french]{babel}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{url}
+
+\title{CogniCharge: estimation multimodale de la charge mentale par signaux physiologiques}
+\titlerunning{CogniCharge}
+
+\author{Equipe CogniCharge}
+\authorrunning{Equipe CogniCharge}
+\institute{Projet d'IHM et cognition -- remplacer par les noms des membres de l'equipe}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Ce rapport presente CogniCharge, un prototype destine a estimer et visualiser la charge mentale d'un utilisateur pendant des taches cognitives. Le systeme combine une interface experimentale, une acquisition BITalino et plusieurs capteurs physiologiques: activite electrodermale, signal cardiaque, respiration et, a terme, accelerometrie pour qualifier les mouvements. L'objectif n'est pas de mesurer directement une entite psychologique invisible, mais de construire une estimation interpretable a partir de correlats physiologiques et comportementaux. Le prototype implemente une calibration individuelle, des blocs experimentaux REST, LOW et HIGH, un calcul de score relatif au repos, une visualisation temps reel et un export CSV structure par session. Les premiers essais montrent une dissociation robuste entre repos et tache, mais une separation encore imparfaite entre faible et forte charge cognitive, ce qui met en evidence les limites d'une mesure uniquement physiologique et l'importance du protocole experimental.
+
+\keywords{Charge mentale \and IHM physiologique \and EDA \and HRV \and BITalino \and Interaction adaptative}
+\end{abstract}
+
+\section{Introduction}
+
+La charge mentale des utilisateurs est une dimension centrale dans la conception des interfaces interactives. Une interface peut etre fonctionnellement correcte tout en etant difficile a utiliser si elle impose trop d'informations a maintenir, trop de decisions simultanees ou trop de contraintes temporelles. Dans ce contexte, CogniCharge vise a donner a l'utilisateur et a l'experimentateur une representation simple de l'etat de charge cognitive pendant une activite. Le projet s'inscrit dans une perspective d'IHM centree humain: observer l'activite, instrumenter l'interaction, puis utiliser ces informations pour mieux adapter la difficulte de la tache.
+
+Le scenario initial consiste a placer un participant devant un ordinateur, lui proposer des taches de difficulte variable et enregistrer simultanement plusieurs signaux physiologiques. Les capteurs disponibles incluent notamment un capteur d'activite electrodermale (EDA), un photoplethysmographe (PPG), un electrocardiogramme (ECG), un capteur de respiration, des accelerometres, ainsi qu'une carte BITalino et un emetteur Bluetooth. Le systeme developpe se concentre sur les signaux les plus directement exploitables pour une premiere estimation: EDA, ECG ou PPG, respiration. Les accelerometres et l'EMG sont consideres comme utiles, mais plutot comme indicateurs d'artefacts ou de tension musculaire que comme mesure principale de charge cognitive.
+
+La difficulte principale du projet vient du fait que la charge mentale n'est pas directement mesurable. Elle doit etre inferee a partir d'observations indirectes: performance a la tache, temps de reponse, effort subjectif, variations physiologiques et stabilite du comportement. Les premiers prototypes ont montre que des scores fondes uniquement sur des amplitudes brutes ou des ecarts-types de signaux ne suffisent pas: un ECG ou un PPG de plus forte amplitude ne signifie pas necessairement que l'utilisateur est plus charge. Le prototype actuel remplace donc ces mesures brutes par des caracteristiques plus interpretablees, telles que la frequence cardiaque, la variabilite cardiaque court terme (RMSSD), l'activite EDA phasique et la deviation respiratoire par rapport au repos.
+
+\section{Motivation}
+
+Le cours d'IHM et de cognition met en avant l'idee que l'interaction humain-machine ne se limite pas a l'affichage d'informations ou a la reaction a des clics. Une interface agit sur l'attention, la memoire de travail, la perception, les emotions et la motivation. Une tache peut echouer non parce que l'utilisateur ne sait pas quoi faire, mais parce que l'interface sollicite simultanement trop de processus cognitifs. La notion de charge mentale permet de relier ces dimensions: elle represente l'effort requis pour maintenir et traiter les informations necessaires a l'action.
+
+Du point de vue cognitif, la memoire de travail est limitee. Lorsque l'utilisateur doit retenir une sequence, lire une consigne, realiser un calcul et repondre dans un temps court, il mobilise attention selective, maintien actif de l'information, inhibition des distracteurs et planification de la reponse. Les supports du cours sur la cognition insistent sur cette articulation entre capacites limitees, traitement de l'information et performance. CogniCharge transpose cette theorie dans un dispositif concret: creer des situations de repos, de faible charge et de forte charge, puis observer si des indices physiologiques accompagnent ces etats.
+
+Le projet est egalement motive par le theme des interfaces adaptatives. Si un systeme peut detecter qu'un utilisateur est surcharge, il peut reduire la difficulte, ralentir le rythme, simplifier l'affichage ou reporter certaines informations. A l'inverse, si la charge est tres faible, il peut augmenter legerement le niveau de stimulation pour maintenir l'engagement. Le lien avec la motivation est important: une tache trop facile peut devenir ennuyeuse, tandis qu'une tache trop difficile peut generer frustration ou abandon. Un bon systeme interactif devrait idealement maintenir l'utilisateur dans une zone d'engagement soutenable.
+
+Sur le plan affectif, les signaux physiologiques ne distinguent pas parfaitement effort cognitif, stress, excitation, fatigue ou anxiete. L'EDA est sensible a l'activation du systeme nerveux autonome; la respiration peut changer avec le stress, la concentration ou la posture; la variabilite cardiaque peut baisser lors d'un effort soutenu, mais aussi varier avec la respiration. Cette ambiguite est justement un point pedagogique fort du projet: le systeme ne doit pas pretendre lire l'esprit, mais proposer une estimation instrumentee, contextualisee et critique. Pour cette raison, les mesures subjectives de charge percue et les performances aux exercices sont conservees avec les signaux.
+
+Un tel systeme peut avoir plusieurs usages. Dans un cadre pedagogique, il aide a comprendre que la cognition n'est pas seulement une abstraction theorique, mais qu'elle peut laisser des traces mesurables dans le corps et dans l'interaction. Dans un cadre applicatif, il ouvre vers des interfaces sensibles a l'etat de l'utilisateur, par exemple pour l'apprentissage, la formation, la supervision industrielle ou les environnements de travail exigeants. Dans le cadre du projet, l'ambition reste raisonnable: construire un prototype fonctionnel, observer les limites des capteurs et identifier les conditions necessaires a une dissociation exploitable entre repos, faible charge et forte charge.
+
+\section{Description technique du système implémenté}
+
+Le systeme implemente est compose de deux modules principaux. Le fichier \texttt{MentalLoadManager.py} gere l'acquisition des signaux et le calcul du score. Le fichier \texttt{CognitiveInterface.py} gere l'experience utilisateur, le protocole par blocs, l'affichage de la charge mentale et l'export des donnees. L'application est developpee en Python avec Tkinter pour l'interface graphique et l'API PLUX/BITalino pour l'acquisition.
+
+Le gestionnaire de charge mentale herite de \texttt{plux.SignalsDev}. Il active par defaut quatre ports: EDA, PPG, ECG et respiration. Les donnees sont acquises a 1000 Hz et conservees dans des buffers circulaires de vingt secondes. Toutes les 500 ms, le systeme extrait des caracteristiques physiologiques. Pour l'EDA, il calcule une composante tonique, issue d'une tendance mediane, et une composante phasique, estimee par la variabilite autour d'un signal lisse. Pour le signal cardiaque, il detecte les pics sur ECG, ou PPG en secours, puis calcule la frequence cardiaque et la RMSSD. Pour la respiration, il estime une frequence respiratoire a partir des oscillations du signal.
+
+Le score de charge mentale est volontairement relatif. Une calibration initiale de 60 secondes fournit une premiere reference individuelle. Ensuite, les blocs REST alimentent une reference adaptative recente. Cette strategie est importante car les signaux physiologiques derivent au cours d'une session, notamment l'EDA tonique. Les features courantes sont converties en deviations robustes par rapport a la reference: baisse de RMSSD, deviation respiratoire, deviation de frequence cardiaque, hausse EDA phasique et deviation EDA tonique. Les poids actuels privilegient RMSSD et respiration, tout en reduisant l'influence de la frequence cardiaque et de l'EDA tonique, jugees moins specifiques dans nos essais.
+
+\begin{table}
+\centering
+\caption{Principales composantes du score de charge mentale.}
+\begin{tabular}{lll}
+\toprule
+Composante & Interpretation & Poids actuel \\
+\midrule
+RMSSD drop & baisse de variabilite cardiaque & 0.42 \\
+Respiration deviation & respiration differente du repos & 0.32 \\
+EDA phasic rise & activation rapide EDA & 0.15 \\
+Heart deviation & rythme cardiaque different du repos & 0.06 \\
+EDA tonic deviation & derive lente EDA & 0.05 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+L'interface experimentale suit un protocole par blocs. Une session commence par une calibration au repos. Ensuite, l'ordre des blocs LOW et HIGH est randomise, avec des blocs REST intercalaires. Les blocs LOW demandent actuellement une fixation calme, tandis que les blocs HIGH imposent un calcul mental continu par soustractions repetees. Apres chaque bloc, le participant donne une note subjective de charge mentale de 1 a 7. A la fin de la session, une courbe de charge mentale est affichee avec un code couleur par condition: REST, LOW et HIGH.
+
+L'export est organise dans un dossier \texttt{resultats}. Chaque session cree un sous-dossier \texttt{session\_AAAAMMJJ\_HHMMSS} contenant un fichier \texttt{summary} et un fichier \texttt{timeline}. Le resume contient une ligne par bloc: condition, intensite, duree, charge subjective, charge moyenne, frequence cardiaque moyenne, RMSSD, EDA, respiration et performance aux exercices HIGH. La timeline contient une ligne toutes les 0.5 s avec les features physiologiques, le score, la qualite du signal, la source cardiaque utilisee et les sous-scores. Les anciens exports sont deplaces dans \texttt{resultats/historique}.
+
+\section{Développement}
+
+Le developpement du projet a suivi une logique iterative. La premiere version cherchait a construire rapidement une chaine complete: acquisition BITalino, affichage d'une barre de charge mentale, exercices cognitifs simples et export CSV. Cette approche etait utile pour valider les branchements et le fonctionnement general, mais elle a rapidement montre ses limites. Le score initial reposait principalement sur des ecarts-types ou des moyennes de signaux bruts. Or ces valeurs etaient tres sensibles au placement des electrodes, au bruit, au contact et aux mouvements. Les resultats obtenus ne permettaient pas de distinguer clairement des situations de faible et de forte charge.
+
+La deuxieme etape a consiste a rendre le score plus interpretable. Au lieu d'utiliser directement l'amplitude ECG ou PPG, le systeme a ete modifie pour extraire des pics cardiaques, une frequence cardiaque et une RMSSD. L'EDA a ete separee en composantes tonique et phasique. La respiration a ete traitee comme une frequence ou une deviation par rapport au repos. Cette evolution correspond a un changement de posture: le but n'est plus de produire une valeur arbitraire entre 0 et 100, mais de construire un indicateur dont les composantes peuvent etre discutees et auditees.
+
+La troisieme etape a porte sur le protocole experimental. Les premiers exercices enchainaient memorisation, lecture, calcul et rappel sur des durees courtes. Ce format etait proche de l'idee initiale, mais il produisait des segments trop courts pour l'EDA et la respiration. Le protocole a donc ete transforme en blocs plus longs: calibration, REST, LOW et HIGH. Cette structure facilite l'analyse car chaque bloc possede un identifiant, une condition, une intensite et une note subjective. Elle permet aussi de comparer chaque tache au repos recent plutot qu'a une baseline unique en debut de session.
+
+Les resultats obtenus pendant les essais ont guide plusieurs decisions techniques. Les CSV ont montre que la qualite ECG etait globalement bonne, avec une source cardiaque exploitable sur la plupart des lignes. En revanche, les signaux EDA tonique et frequence cardiaque ne separaient pas toujours correctement LOW et HIGH. Le score a donc ete ajuste pour accorder moins de poids a ces composantes non specifiques et plus de poids a la RMSSD et a la respiration. Les sous-scores ont ete ajoutes dans les exports afin de comprendre pourquoi le score monte ou baisse. Cette transparence est importante: sans elle, le systeme serait une boite noire difficile a defendre scientifiquement.
+
+L'usage de l'IA a joue un role d'assistance dans ce developpement. Elle a ete utilisee pour analyser le code existant, proposer des refactorisations, identifier les limites du protocole, lire les CSV exportes, calculer des statistiques par condition et rediger une documentation experimentale. L'IA n'a cependant pas remplace les decisions de conception: les choix ont ete contraints par les capteurs disponibles, les essais reels, les resultats observes et les objectifs pedagogiques. Son apport principal a ete d'accelerer les cycles d'iteration: transformer une observation issue des donnees en modification du score ou de l'interface, puis verifier rapidement l'effet sur les exports.
+
+Cette utilisation de l'IA souleve aussi des limites. Un assistant peut proposer un score plausible, mais il ne peut pas valider biologiquement un modele sans donnees nombreuses, sans protocole controle et sans comparaison statistique sur plusieurs participants. Il peut egalement favoriser des explications trop propres pour des signaux physiologiques qui restent ambigus. Pour eviter cela, le projet conserve les signaux bruts derives, les sous-scores, les notes subjectives et les performances. Le rapport entre technologie et facteurs humains reste donc central: l'outil informatique aide a instrumenter l'experience, mais l'interpretation doit rester prudente.
+
+Sur le plan de gestion de projet, les principales difficultes ont ete l'integration materielle, le manque de separation initial entre acquisition et protocole, et la necessite de ranger les donnees de maniere exploitable. Le projet a evolue vers une architecture plus claire: un module pour l'acquisition et le calcul, un module pour l'interface et le protocole, un dossier de resultats structure par session. Cette organisation facilite les essais successifs, evite d'ecraser les donnees et permet de reproduire les analyses. Elle prepare aussi des extensions futures: ajout d'un capteur accelerometre comme indicateur de mouvement, remplacement du bloc LOW par une tache active, ou ajout d'un n-back pour manipuler plus proprement la charge de memoire de travail.
+
+\section{Conclusion}
+
+CogniCharge a permis de construire un prototype fonctionnel reliant une interface experimentale, des capteurs physiologiques et une estimation temps reel de la charge mentale. Le principal point positif est l'existence d'une chaine complete: acquisition, extraction de features, score adaptatif, visualisation, protocole par blocs, annotation subjective et export structure. Le systeme n'est pas limite a une demonstration statique; il produit des donnees analysables et permet d'observer l'evolution de la charge au cours d'une session. L'affichage final sous forme de courbe rend les resultats accessibles immediatement, tandis que les CSV conservent les details necessaires pour une analyse plus fine.
+
+Un deuxieme point positif est l'amelioration progressive de l'interpretabilite. Le score initial, fonde sur des valeurs brutes, ne separait pas les conditions. Le score actuel est relatif au repos et decompose en sous-scores. Il distingue mieux les periodes de repos des periodes de tache. Sur la session exportee le 24 mai 2026 a 20:00, les moyennes observees etaient d'environ 7.9 pour REST, 21.8 pour LOW et 20.5 pour HIGH. Ces valeurs montrent que le systeme detecte l'engagement dans une activite par rapport au repos, meme si la separation entre LOW et HIGH reste fragile. Les notes subjectives montrent de leur cote une difference plus nette: les blocs HIGH sont percus comme plus exigeants que les blocs REST et souvent plus que les blocs LOW.
+
+Le principal point negatif est justement cette dissociation incomplete entre faible et forte charge. Le bloc LOW actuel, fonde sur une fixation calme, n'est pas une tache cognitive comparable au bloc HIGH. Il peut produire de l'ennui, de l'attente, une modification de la respiration ou une strategie de controle corporel. De plus, le bloc HIGH par calcul mental continu ne sollicite pas uniquement la charge cognitive: il peut induire stress, pression de performance, controle respiratoire et effort moteur de saisie. Les signaux physiologiques mesurent donc une activation globale plutot qu'une charge cognitive pure.
+
+Une autre limite concerne la generalisation. Les poids du score ont ete ajustes a partir de quelques essais. Meme si la normalisation par repos rend le systeme plus robuste qu'un seuil absolu, il faudrait tester plusieurs participants, dans des ordres randomises, avec plusieurs repetitions par condition et une analyse statistique. Il faudrait egalement conserver les donnees brutes ou semi-brutes afin de verifier les artefacts, notamment les mouvements, les pertes de contact et les changements de posture. L'ajout de l'accelerometrie comme indicateur de qualite serait donc une amelioration importante.
+
+Le choix des taches constitue la prochaine etape la plus importante. Pour isoler davantage la charge cognitive, il serait preferable de remplacer le LOW passif par un LOW actif comparable au HIGH. Une piste solide serait un protocole de type n-back: 0-back ou 1-back pour la faible charge, 2-back ou 3-back pour la forte charge. Les stimuli, la duree, le rythme et les reponses seraient alors similaires; seule la demande en memoire de travail varierait. Cela reduirait les differences parasites entre fixation et calcul mental et rendrait les resultats plus defendables.
+
+En conclusion, CogniCharge atteint son objectif de prototype exploratoire: il rend visible une dynamique de charge estimee, connecte des notions de cognition et d'IHM a des mesures corporelles, et met en evidence les difficultes methodologiques d'une telle mesure. Le systeme ne doit pas etre presente comme un detecteur fiable et universel de charge mentale, mais comme une plateforme experimentale permettant de tester des hypotheses, comparer des conditions et reflechir aux limites des interfaces physiologiquement adaptatives. Les aspects positifs sont la chaine technique complete, l'export rigoureux et l'interpretabilite accrue du score. Les aspects negatifs sont la dependance au protocole, l'ambiguite des signaux physiologiques et la validation encore insuffisante. Ces limites ne disqualifient pas le projet; elles indiquent plutot les prochaines experimentations necessaires pour passer d'un prototype pedagogique a un outil plus robuste.
+
+\begin{thebibliography}{8}
+
+\bibitem{baddeley}
+Baddeley, A.: Working memory: theories, models, and controversies. Annual Review of Psychology 63, 1--29 (2012)
+
+\bibitem{hart}
+Hart, S.G., Staveland, L.E.: Development of NASA-TLX (Task Load Index): results of empirical and theoretical research. In: Hancock, P.A., Meshkati, N. (eds.) Human Mental Workload, pp. 139--183. North-Holland (1988)
+
+\bibitem{bitalino}
+da Silva, H.P., Guerreiro, J., Lourenco, A., Fred, A., Martins, R.: BITalino: a novel hardware framework for physiological computing. In: International Conference on Physiological Computing Systems, pp. 246--253 (2014)
+
+\bibitem{healey}
+Healey, J.A., Picard, R.W.: Detecting stress during real-world driving tasks using physiological sensors. IEEE Transactions on Intelligent Transportation Systems 6(2), 156--166 (2005)
+
+\bibitem{cours}
+Supports de cours IHM, cognition, affect et motivation. Materiel pedagogique fourni dans le cadre du cours (2026)
+
+\end{thebibliography}
+
+\end{document}
