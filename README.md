@@ -1,4 +1,4 @@
-Pour lancer le projet, executez les commandes suivantes :
+## Pour lancer le projet, executez les commandes suivantes :
 
 pip install uv
 
